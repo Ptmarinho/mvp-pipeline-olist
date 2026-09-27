@@ -16,10 +16,19 @@
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
+from pyspark.sql import functions as F
 
 plt.rcParams.update({"figure.figsize": (11, 4.5), "axes.spines.top": False, "axes.spines.right": False, "axes.grid": True, "grid.alpha": 0.3})
 AZUL, LARANJA, CINZA = "#2563eb", "#ea580c", "#9ca3af"
 q = lambda sql: spark.sql(sql)
+
+
+def to_pd(df):
+    """Converte para pandas transformando colunas DECIMAL em DOUBLE (o matplotlib não opera com Decimal)."""
+    from pyspark.sql.types import DecimalType
+    cols = [F.col(c.name).cast("double").alias(c.name) if isinstance(c.dataType, DecimalType) else F.col(c.name)
+            for c in df.schema.fields]
+    return df.select(cols).toPandas()
 
 # COMMAND ----------
 
@@ -58,7 +67,7 @@ GROUP BY 1 ORDER BY 1
 """)
 display(p1b)
 
-pdf = p1b.toPandas()
+pdf = to_pd(p1b)
 fig, ax = plt.subplots()
 barras = ax.bar(pdf["faixa_atraso"].str[3:], pdf["nota_media"], color=[AZUL] + [LARANJA] * (len(pdf) - 1))
 ax.bar_label(barras, fmt="%.2f")
@@ -101,7 +110,7 @@ ORDER BY prazo_medio_dias DESC
 """)
 display(p2)
 
-pdf = p2.toPandas()
+pdf = to_pd(p2)
 fig, ax1 = plt.subplots(figsize=(13, 5))
 ax1.bar(pdf["uf"], pdf["prazo_medio_dias"], color=AZUL, label="Prazo médio (dias)")
 ax1.set_ylabel("Prazo médio de entrega (dias)")
@@ -155,11 +164,11 @@ display(p3.limit(10))
 
 # COMMAND ----------
 
-pdf = p3.limit(10).toPandas().iloc[::-1]
+pdf = to_pd(p3.limit(10)).iloc[::-1]
 fig, ax = plt.subplots(1, 2, figsize=(14, 5))
 ax[0].barh(pdf["categoria"], pdf["receita"] / 1e6, color=AZUL)
 ax[0].set_xlabel("Receita (R$ milhões)"); ax[0].set_title("Top 10 categorias por receita")
-pior = q("SELECT categoria, nota_media FROM p3 WHERE itens_vendidos >= 500 ORDER BY nota_media ASC LIMIT 10").toPandas().iloc[::-1]
+pior = to_pd(q("SELECT categoria, nota_media FROM p3 WHERE itens_vendidos >= 500 ORDER BY nota_media ASC LIMIT 10")).iloc[::-1]
 ax[1].barh(pior["categoria"], pior["nota_media"], color=LARANJA)
 ax[1].set_xlim(3, 4.5); ax[1].set_xlabel("Nota média"); ax[1].set_title("10 piores notas (categorias com ≥ 500 itens)")
 fig.suptitle("P3 · Receita e satisfação por categoria"); plt.tight_layout(); plt.show()
@@ -195,7 +204,7 @@ GROUP BY d.ano_mes ORDER BY d.ano_mes
 """)
 display(p4)
 
-pdf = p4.toPandas()
+pdf = to_pd(p4)
 fig, ax = plt.subplots(figsize=(13, 4.5))
 ax.plot(pdf["ano_mes"], pdf["receita"] / 1e3, color=AZUL, marker="o")
 destaque = pdf[pdf["ano_mes"] == "2017-11"]
@@ -246,7 +255,7 @@ GROUP BY 1 ORDER BY 1
 """)
 display(p5)
 
-pdf = p5.toPandas().set_index("tipo_envio").loc[["Mesma UF", "Interestadual"]]
+pdf = to_pd(p5).set_index("tipo_envio").loc[["Mesma UF", "Interestadual"]]
 fig, ax = plt.subplots(1, 3, figsize=(14, 4))
 for a, col, titulo in zip(ax, ["prazo_medio_dias", "pct_atraso", "frete_medio"], ["Prazo médio (dias)", "% atrasados", "Frete médio (R$)"]):
     b = a.bar(pdf.index, pdf[col], color=[CINZA, LARANJA]); a.bar_label(b, fmt="%.1f"); a.set_title(titulo)
@@ -296,7 +305,7 @@ GROUP BY 1 ORDER BY 1
 """)
 display(p6b)
 
-a, b = p6.toPandas(), p6b.toPandas()
+a, b = to_pd(p6), to_pd(p6b)
 fig, ax = plt.subplots(1, 2, figsize=(14, 4.5))
 ax[0].pie(a["pedidos"], labels=a["tipo_pagamento_principal"], autopct=lambda v: f"{v:.1f}%" if v > 1 else "", startangle=90,
           colors=[AZUL, LARANJA, CINZA, "#16a34a", "#a855f7"][: len(a)])

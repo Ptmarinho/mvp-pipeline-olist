@@ -134,6 +134,9 @@ erDiagram
 ![Resultado da ingestão Bronze](docs/img/02_ingestao_bronze.png)
 *Notebook `02_bronze`: contagem de linhas carregadas × esperadas (todas OK).*
 
+![Amostra da Bronze](docs/img/02b_bronze_amostra.png)
+*Amostra de `bronze.orders`: todas as colunas como STRING (ícone "ABC"), exatamente como vieram do CSV.*
+
 ---
 
 ## 3. Modelagem e Catálogo de Dados (Etapa 4.3)
@@ -222,6 +225,9 @@ erDiagram
 - Pagamentos foram **agregados** na `fato_pedidos` (valor total, parcelas, forma principal), pois as perguntas analisam o pedido, e não cada transação.
 - **PKs e FKs** estão registradas como *constraints* no Unity Catalog, e o relacionamento aparece no Catalog Explorer.
 
+![Consulta no modelo estrela](docs/img/08b_gold_consulta_estrela.png)
+*Exemplo de consulta no modelo: JOIN entre `fato_itens_pedido` e `dim_cliente` para obter pedidos, receita e nota média por região.*
+
 ### 3.3 Catálogo de Dados
 
 O catálogo foi implementado **no próprio Unity Catalog** pelo notebook [`06_catalogo_dados`](notebooks/06_catalogo_dados.py):
@@ -230,6 +236,9 @@ A linhagem entre tabelas e colunas também é capturada **automaticamente** pelo
 
 ![Catálogo: comentários das colunas](docs/img/03_catalogo_colunas.png)
 *Catalog Explorer: `gold.fato_pedidos` com descrição da tabela e de cada coluna.*
+
+![Catálogo consolidado](docs/img/03b_catalogo_consolidado.png)
+*Catálogo consolidado via `information_schema.columns`: 147 colunas das camadas Gold e Silver com tipo e descrição (domínio e linhagem).*
 
 ![Chaves primárias e estrangeiras](docs/img/04_catalogo_pk_fk.png)
 *Relacionamentos PK/FK do modelo estrela no Catalog Explorer.*
@@ -381,7 +390,7 @@ com dependências em sequência.
 | products | **JOIN** com `category_translation` (+2 traduções faltantes adicionadas) | Categoria em inglês para todos os produtos |
 | customers / sellers | CEP com 5 dígitos (`lpad`), UF maiúscula, cidade sem acentos e em minúsculas | Padronização para JOINs e agrupamentos |
 | sellers | Limpeza de cidade: corte em `/`, `,`, `\`; e-mail/números → nulo | Ex.: `"sao paulo / sao paulo"` → `"sao paulo"` |
-| geolocation | Remove 261.831 duplicatas e 42 pontos fora do Brasil; **agrega para 1 linha por CEP** (mediana lat/lng) | 1.000.163 → ~19 mil linhas; vira uma referência usável em JOIN sem multiplicar linhas |
+| geolocation | Remove 261.831 duplicatas e 42 pontos fora do Brasil; **agrega para 1 linha por CEP** (mediana lat/lng) | 1.000.163 → 19.010 linhas; vira uma referência usável em JOIN sem multiplicar linhas |
 
 **Silver → Gold** ([`05_gold`](notebooks/05_gold.py)):
 - **JOIN** de `order_items` com `orders` pelo `order_id`, trazendo cliente, data e status de cada item;
@@ -395,6 +404,9 @@ com dependências em sequência.
 
 ![Job do pipeline](docs/img/06_job_pipeline.png)
 *Job `pipeline_olist`: tarefas encadeadas e execução concluída com sucesso.*
+
+![Conferência Bronze × Silver](docs/img/07a_silver_conferencia.png)
+*Notebook `04_silver`: linhas por tabela antes e depois da limpeza (551 avaliações duplicadas removidas; geolocalização agregada de 1.000.163 pontos para 19.010 CEPs; +2 traduções de categoria).*
 
 ![Tabelas persistidas](docs/img/07_tabelas_persistidas.png)
 *Catalog Explorer: tabelas Delta persistidas nos schemas `bronze`, `silver`, `gold` e `qualidade`.*
@@ -426,9 +438,9 @@ A qualidade foi verificada em **dois momentos**:
 | Unicidade | geolocation | Linhas idênticas | 261.831 (26%) | Removidas |
 | Unicidade | geolocation.zip_code_prefix | Vários pontos por CEP | 1.000.163 linhas / 19.015 CEPs | Agregado por CEP (mediana) |
 | Unicidade | customers.customer_unique_id | Mesma pessoa com vários customer_id | 3.345 | Comportamento da fonte (1 id por pedido); mantido |
-| Consistência | sellers.seller_city | Cidade com UF, barra, vírgula, CEP ou e-mail | 24 | Limpeza por regra; inválidos → nulo |
-| Consistência | geolocation.city | Acentos e grafias variantes (`são paulo`, `sao paulo`, `sa~o paulo`) | milhares | Remoção de acentos e diacríticos |
-| Consistência | products.category | Categorias sem tradução | 2 | Tradução adicionada |
+| Consistência | sellers.seller_city | Cidade com UF, barra, vírgula, CEP ou e-mail | 23 | Limpeza por regra; inválidos → nulo |
+| Consistência | geolocation.city | Acentos e grafias variantes (`são paulo`, `sao paulo`, `sa~o paulo`) | 73.442 (7,3%) | Remoção de acentos e diacríticos |
+| Consistência | products.category | Categorias sem tradução | 2 categorias (13 produtos) | Tradução adicionada |
 | Consistência | category_translation | Caractere BOM no cabeçalho | 1 | Removido do nome da coluna na ingestão |
 | Consistência | order_payments.payment_type | `not_defined` | 3 | Mantido (pedidos cancelados, valor 0) |
 | Acurácia | order_payments.installments | Parcelas = 0 | 2 | Corrigido para 1 |
@@ -453,10 +465,16 @@ CEPs com 5 dígitos; preços > 0; notas entre 1 e 5; integridade de items → pr
 *Completude de todos os atributos da Bronze (`qualidade.perfil_completude_bronze`).*
 
 ![Checagens de qualidade](docs/img/10_qualidade_checagens.png)
-*Checagens com status e tratamento aplicado (`qualidade.checagens_bronze`).*
+*Problemas detectados na Bronze (`qualidade.checagens_bronze`): dimensão, regra e quantidade de registros com falha.*
+
+![Tratamentos aplicados](docs/img/10b_qualidade_tratamentos.png)
+*Continuação: tratamento aplicado na Silver para cada problema.*
 
 ![Validação da Gold](docs/img/11_validacao_gold.png)
 *Todas as regras de validação da Gold com 0 violações (`qualidade.validacao_gold`).*
+
+![Cobertura da Gold](docs/img/11b_cobertura_gold.png)
+*Cobertura das informações usadas nas análises: 96.470 pedidos com prazo calculado, 98.673 avaliados (99,23%), 775 sem itens e 189 com datas inconsistentes (sinalizados).*
 
 ---
 
