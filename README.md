@@ -66,7 +66,7 @@ Essas perguntas guiaram as decisões técnicas do pipeline:
 |---|---|
 | **Dataset** | *Brazilian E-Commerce Public Dataset by Olist* |
 | **Fonte** | Kaggle: https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce |
-| **Publicado por** | Olist (dados reais, anonimizados; nomes de empresas substituídos por nomes de personagens de *Game of Thrones* nas avaliações) |
+| **Publicado por** | Olist (dados comerciais reais, anonimizados pela própria empresa) |
 | **Período** | Pedidos de **set/2016 a out/2018** |
 | **Volume** | ~100 mil pedidos, 9 arquivos CSV, ~126 MB |
 | **Licença** | **CC BY-NC-SA 4.0** (Creative Commons Atribuição-NãoComercial-CompartilhaIgual 4.0) |
@@ -244,7 +244,7 @@ A linhagem entre tabelas e colunas também é capturada **automaticamente** pelo
 *Relacionamentos PK/FK do modelo estrela no Catalog Explorer.*
 
 ![Linhagem](docs/img/05_linhagem.png)
-*Aba Lineage: `bronze → silver → gold` gerada automaticamente pelo Unity Catalog.*
+*Aba Lineage da `gold.fato_pedidos`, gerada automaticamente pelo Unity Catalog: as tabelas Silver (`orders`, `order_payments`, `order_reviews`) e a `gold.fato_itens_pedido` que a alimentam. Expandindo cada nó, chega-se às tabelas Bronze.*
 
 A seguir, a **transcrição do catálogo** da camada Gold (consumo analítico). Os domínios foram verificados nos dados.
 
@@ -360,8 +360,8 @@ O catálogo completo pode ser consultado com a última célula do notebook `06_c
 ### 4.1 Organização
 
 O pipeline foi **dividido em um notebook por etapa** (um ETL por camada). Cada um é reexecutável (cargas `overwrite`) e
-todos compartilham parâmetros via `%run ./00_config`. A execução é orquestrada por um **Job do Databricks** (Lakeflow Jobs)
-com dependências em sequência.
+todos compartilham parâmetros via `%run ./00_config`. Os notebooks são executados em sequência, no compute **Serverless**
+do Databricks, na ordem abaixo (cada etapa depende da anterior).
 
 | Ordem | Notebook | Etapa | Lê de | Grava em |
 |---:|---|---|---|---|
@@ -372,7 +372,7 @@ com dependências em sequência.
 | 4 | [`04_silver`](notebooks/04_silver.py) | **T**: limpeza, tipagem, deduplicação | `bronze.*` | `silver.*` (9) |
 | 5 | [`05_gold`](notebooks/05_gold.py) | **T**: modelo estrela (JOINs e agregações) | `silver.*` | `gold.*` (6) |
 | 6 | [`06_catalogo_dados`](notebooks/06_catalogo_dados.py) | Catálogo: comentários + PK/FK | — | metadados do Unity Catalog |
-| 7 | [`07_validacao_gold`](notebooks/07_validacao_gold.py) | Testes de qualidade da Gold (falha o Job se violar) | `gold.*`, `silver.*` | `qualidade.validacao_gold` |
+| 7 | [`07_validacao_gold`](notebooks/07_validacao_gold.py) | Testes de qualidade da Gold (falha a execução se violar) | `gold.*`, `silver.*` | `qualidade.validacao_gold` |
 | 8 | [`08_analise`](notebooks/08_analise.py) | Respostas P1 a P6 | `gold.*` | — |
 
 ### 4.2 Principais transformações
@@ -402,17 +402,17 @@ com dependências em sequência.
 
 ### 4.3 Evidências
 
-![Job do pipeline](docs/img/06_job_pipeline.png)
-*Job `pipeline_olist`: tarefas encadeadas e execução concluída com sucesso.*
-
 ![Conferência Bronze × Silver](docs/img/07a_silver_conferencia.png)
 *Notebook `04_silver`: linhas por tabela antes e depois da limpeza (551 avaliações duplicadas removidas; geolocalização agregada de 1.000.163 pontos para 19.010 CEPs; +2 traduções de categoria).*
 
 ![Tabelas persistidas](docs/img/07_tabelas_persistidas.png)
-*Catalog Explorer: tabelas Delta persistidas nos schemas `bronze`, `silver`, `gold` e `qualidade`.*
+*Catalog Explorer: as 6 tabelas Delta do modelo estrela persistidas no schema `olist.gold`, com descrição (Comment) gravada no Unity Catalog.*
 
-![Tabela Gold](docs/img/08_gold_amostra.png)
-*Amostra da `gold.fato_pedidos` (aba Sample Data).*
+![Tabelas Silver](docs/img/07b_tabelas_silver.png)
+*Schema `olist.silver`: as 9 tabelas limpas e padronizadas.*
+
+![Tabelas Bronze](docs/img/07c_tabelas_bronze.png)
+*Schema `olist.bronze`: as 9 tabelas brutas e o Volume `landing` (aba Volumes 1).*
 
 ---
 
@@ -423,7 +423,7 @@ A qualidade foi verificada em **dois momentos**:
    além de **38 checagens** de consistência, unicidade, acurácia e integridade referencial, e da análise de outliers (IQR).
    Cada checagem registra o tratamento aplicado na Silver.
 2. **Depois de modelar** ([`07_validacao_gold`](notebooks/07_validacao_gold.py)): 27 regras sobre a Gold (unicidade de PK,
-   FK órfã, reconciliação de contagens e valores com a Silver, domínios). O notebook **interrompe o Job** se alguma regra falhar.
+   FK órfã, reconciliação de contagens e valores com a Silver, domínios). O notebook **interrompe a execução** (assert) se alguma regra falhar.
 
 ### 5.1 Problemas encontrados e tratamentos
 
@@ -536,8 +536,8 @@ atraso fica baixo (AP e AM ≈ 3%). Os **maiores atrasos** estão no **Nordeste*
 |---|---:|---:|---:|---|---|---:|
 | beleza_saude | 1.258.681 | 9,3% | 4,14 | | moveis_escritorio | **3,49** |
 | relogios_presentes | 1.205.006 | 8,9% | 4,02 | | sem_categoria | 3,84 |
-| cama_mesa_banho | 1.036.989 | 7,6% | **3,90** | | cama_mesa_banho | 3,90 |
-| esporte_lazer | 988.049 | 7,3% | 4,11 | | moveis_sala | 3,90 |
+| cama_mesa_banho | 1.036.989 | 7,6% | **3,90** | | moveis_sala | 3,90 |
+| esporte_lazer | 988.049 | 7,3% | 4,11 | | cama_mesa_banho | 3,90 |
 | informatica_acessorios | 911.954 | 6,7% | **3,93** | | moveis_decoracao | 3,91 |
 
 ![P3](docs/img/14_p3_categorias.png)
@@ -621,7 +621,7 @@ As respostas formam uma narrativa coerente para o problema proposto:
 **Atingimento dos objetivos.** Todas as 6 perguntas definidas no início foram respondidas com dados da camada Gold. O pipeline
 cumpre o ciclo completo proposto: coleta com licença documentada, armazenamento em nuvem (Volume + Delta), arquitetura medalhão,
 Esquema Estrela, catálogo de dados no Unity Catalog com domínios, linhagem e PK/FK, verificação de qualidade antes e depois das
-transformações, e análise com discussão. O pipeline é reprodutível: pode ser executado do zero por um Job, com validações que
+transformações, e análise com discussão. O pipeline é reprodutível: pode ser executado do zero rodando os notebooks em ordem, com validações que
 interrompem a execução se houver inconsistência.
 
 **Limitações.**
@@ -637,9 +637,12 @@ interrompem a execução se houver inconsistência.
   foi preciso agregá-la por CEP.
 - Decidir o tratamento de avaliações duplicadas e de datas inconsistentes sem descartar informação útil.
 - Escolher a granularidade do modelo: as perguntas exigiam dois grãos (pedido e item), o que levou a duas tabelas fato.
+- Ambiente: notebooks Python ligados por engano ao *SQL Warehouse* (que só executa SQL) falhavam; foi preciso selecionar o compute **Serverless**.
+- Tipos: valores monetários em `DECIMAL` (corretos para dinheiro) não são aceitos diretamente pelo Matplotlib; os gráficos passaram a converter essas colunas para `DOUBLE` apenas na visualização.
 
 **Trabalhos futuros.**
-- Carga **incremental** com Auto Loader / `MERGE` e orquestração agendada.
+- **Orquestração** com um Job do Databricks (Lakeflow Jobs), encadeando os notebooks e agendando a execução, em vez da execução manual em sequência.
+- Carga **incremental** com Auto Loader / `MERGE`.
 - **Dashboard** no Databricks (AI/BI Dashboards) consumindo a Gold.
 - Usar a **distância geográfica** real vendedor–cliente (lat/lng já disponíveis) em vez da flag interestadual.
 - Análise de **texto dos comentários** (NLP) para entender os motivos das notas baixas.
@@ -654,7 +657,7 @@ interrompem a execução se houver inconsistência.
 2. Em *Workspace → Create → Git folder*, clone este repositório.
 3. Execute [`notebooks/01_setup`](notebooks/01_setup.py) para criar os schemas e o Volume.
 4. Baixe o dataset no [Kaggle](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) e faça upload dos 9 CSVs no Volume `olist.bronze.landing`.
-5. Execute os notebooks `02` a `08` em ordem, ou crie um Job com uma tarefa por notebook encadeadas nessa ordem.
+5. Execute os notebooks `02` a `08` em ordem, com o compute **Serverless** selecionado.
 
 > Se o workspace não permitir criar o catálogo `olist`, o `00_config` usa automaticamente o catálogo `workspace`, com a mesma estrutura de schemas.
 
