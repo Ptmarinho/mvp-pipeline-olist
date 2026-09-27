@@ -1,0 +1,17 @@
+# Dados brutos não são versionados (licença CC BY-NC-SA 4.0 / tamanho)
+data/
+*.csv
+*.zip
+
+# Python / ambiente local
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Sistema operacional / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
